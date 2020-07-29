@@ -79,11 +79,11 @@ main(int   argc,
 	
 	GstElement *mixer = gst_element_factory_make("videomixer", "mixer");
 	assert(mixer);
-	GstElement * clrspace = gst_element_factory_make("videoconvert", "clrspace");
-	assert(clrspace);
+	//GstElement * clrspace = gst_element_factory_make("videoconvert", "clrspace");
+	//assert(clrspace);
 
-	GstElement * clrspace1 = gst_element_factory_make("videoconvert", "clrspace1");
-	assert(clrspace1);
+	//GstElement * clrspace1 = gst_element_factory_make("videoconvert", "clrspace1");
+	//assert(clrspace1);
 	
 	GstElement *sink = gst_element_factory_make("autovideosink", "sink");
 	assert(sink);
@@ -101,17 +101,10 @@ main(int   argc,
 		NULL);
 	assert(filtercaps);
 	g_object_set(G_OBJECT(filter), "caps", filtercaps, NULL);
+	g_object_set(G_OBJECT(filter1), "caps", filtercaps, NULL);
 	gst_caps_unref (filtercaps);
 
-	GstCaps *filtercaps1 = gst_caps_new_simple("video/x-raw",
-		"format", G_TYPE_STRING, "I420",
-		"width", G_TYPE_INT, 800,
-		"height", G_TYPE_INT, 600,
-		NULL);
-	assert(filtercaps1);
-	g_object_set(G_OBJECT(filter1), "caps", filtercaps1, NULL);
-	gst_caps_unref(filtercaps1);
-
+	
 	
 	/* Set up the pipeline */
 
@@ -128,7 +121,7 @@ main(int   argc,
 
 	/* we add all elements into the pipeline */
 	gst_bin_add_many(GST_BIN(pipeline),
-		source1, filter,filter1, /* videobox1,*/  mixer,  clrspace, clrspace1, sink, source2,/* videobox2,*/ NULL);
+		source1, filter,filter1,  mixer,  sink, source2, NULL);
 
 	/* Manually link the mixer, which has "Request" pads */
 	
@@ -138,7 +131,7 @@ main(int   argc,
 		auto* mixer_sink_pad = gst_element_request_pad(mixer, mixer_sink_pad_template, NULL, NULL);
 		assert(mixer_sink_pad);
 		//auto* name = gst_pad_get_name(mixer_sink_pad);
-		auto * sink_pad = gst_element_get_static_pad(clrspace, "src");
+		auto * sink_pad = gst_element_get_static_pad(filter1, "src");
 		assert(sink_pad);
 		{
 			const auto r = gst_pad_link(sink_pad, mixer_sink_pad);
@@ -153,7 +146,7 @@ main(int   argc,
 		{
 			auto* mixer_sink_pad1 = gst_element_request_pad(mixer, mixer_sink_pad_template, NULL, NULL);
 			assert(mixer_sink_pad1);
-			auto * sink_pad1 = gst_element_get_static_pad(clrspace1, "src");
+			auto * sink_pad1 = gst_element_get_static_pad(filter, "src");
 			
 			assert(sink_pad1);
 			{
@@ -165,9 +158,9 @@ main(int   argc,
 			gst_object_unref(GST_OBJECT(sink_pad1));
 		}
 		gst_element_link_many(mixer, sink, NULL);
-		gst_element_link_many(source2, filter1, clrspace,NULL);
-		gst_element_link_many(source1, filter, clrspace1,  NULL);
-	
+		
+		gst_element_link_many(source1, filter, /*clrspace1,*/  NULL);
+		gst_element_link_many(source2, filter1, /*clrspace,*/ NULL);
 	
 	
 	
