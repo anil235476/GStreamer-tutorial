@@ -93,6 +93,7 @@ main(int   argc,
 
 	GstElement *sink = gst_element_factory_make("filesink", "sink-file");
 	assert(sink);
+	g_object_set(G_OBJECT(sink), "location", "dump.webm", NULL);
 
 	
 	GstElement* container = gst_element_factory_make("webmmux", NULL);
@@ -117,13 +118,13 @@ main(int   argc,
 
 
 	
-	g_object_set(G_OBJECT(sink), "location", "dump.webm", NULL);
+	
 	
 	/* Set up the pipeline */
 
 	/* we set the input filename to the source element */
-	g_object_set(G_OBJECT(source1), "pattern", 11, NULL); //circle pattern
-	g_object_set(G_OBJECT(source2), "pattern", 0, NULL);  // snow pattern
+	g_object_set(G_OBJECT(source1), "pattern", 18, NULL); //circle pattern
+	g_object_set(G_OBJECT(source2), "pattern", 18, NULL);  // snow pattern
 
 	/* we add a message handler */
 	GstBus *bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
