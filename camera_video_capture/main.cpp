@@ -2,6 +2,34 @@
 #include <gst/gst.h>
 #include <cassert>
 
+
+//gst-launch-1.0 -v ksvideosrc ! videomixer ! autovideosink sync=false
+
+//gst-launch-1.0 -v videomixer name=mixer ! autovideosink sync=false  ksvideosrc ! mixer. videotestsrc pattern=18 ! mixer.
+
+//gst-launch-1.0 -v videomixer name=mixer sink_1::xpos=800 ! autovideosink sync=false  ksvideosrc ! video/x-raw,format=BGR,width=800,height=600 ! videoconvert  ! mixer. videotestsrc pattern=18 ! mixer.
+
+//gst-launch-1.0 -v videomixer name=mixer sink_1::xpos=800 sink_2::xpos=800 sink_2::ypos=300 ! videoconvert ! vp8enc ! webmmux ! filesink location=D:/demo.webm  ksvideosrc ! video/x-raw,format=BGR,width=800,height=600 ! videoconvert  ! mixer. videotestsrc pattern=18 ! mixer. videotestsrc pattern=0 ! mixer.
+
+
+//logo
+//gst-launch-1.0 -v filesrc location=D:/hopit-logo.png ! pngdec ! imagefreeze !videomixer ! autovideosink
+
+//gst-launch-1.0 -v videomixer name=mixer ! autovideosink sync=false ksvideosrc ! mixer. filesrc location=D:/hopit-logo.png ! decodebin ! imagefreeze ! mixer.
+
+//gst-launch-1.0 -v videomixer name=mixer sink_1::xpos=800 sink_2::xpos=800 sink_2::ypos=300 ! autovideosink sync=false  ksvideosrc ! video/x-raw,format=BGR,width=800,height=600 ! videoconvert  ! mixer. videotestsrc pattern=18 ! mixer. videotestsrc pattern=0 ! mixer.
+//gst-launch-1.0 -v ksvideosrc !videoconvert !rawvideoparse width=640 height=480 framerate=25/1 format=16 ! videomixer ! autovideosink
+
+
+
+//gst-launch-1.0 -v ksvideosrc !rawvideoparse width=640 height=480 framerate=25/1 format=16 !videoconvert ! autovideosink
+//it runs smooth
+
+//gst-launch-1.0 -v ksvideosrc !videoconvert !rawvideoparse width=640 height=480 framerate=25/1 format=16 ! videomixer  !vp8enc !webmmux ! filesink location=D:/dump.webm
+
+
+//http://gstreamer-devel.966125.n4.nabble.com/Still-can-t-get-videomixer-to-do-live-video-at-full-frame-rate-td3748457.html
+//http://gstreamer-devel.966125.n4.nabble.com/v4l2rc-MJPEG-to-Videomixer-slow-alternative-pathways-td4684534.html
 //https://gstreamer.freedesktop.org/documentation/vpx/vp8enc.html?gi-language=c#vp8enc
 
 
@@ -127,7 +155,7 @@ main(int   argc,
 	
 	GstElement *sink = gst_element_factory_make("autovideosink", "sink");
 	assert(sink);
-
+	g_object_set(G_OBJECT(sink), "sync", false, NULL);
 
 	/*GstElement *sink = gst_element_factory_make("filesink", "sink-file");
 	assert(sink);
@@ -139,11 +167,33 @@ main(int   argc,
 	GstElement* enocoder = gst_element_factory_make("vp8enc", NULL );
 	assert(enocoder);
 
+	GstElement* fileSrc = gst_element_factory_make("filesrc", NULL);
+	assert(fileSrc);
+
+	g_object_set(G_OBJECT(fileSrc), "location", "D:/logo.png", NULL);
+
+	GstElement *pngDec = gst_element_factory_make("pngdec", NULL);
+	assert(pngDec);
+
+	GstElement* imageFreez = gst_element_factory_make("imagefreeze", NULL);
+	assert(imageFreez);
+
+	//GstElement* queue = gst_element_factory_make("queue", NULL);
+	//assert(queue);
+
+	//g_object_set(G_OBJECT(queue), "max-size-time", 0, "max-size-buffers", 0, "max-size-bytes", 0,
+	//	"leaky", 1, NULL);
+
+//	GstElement* videorate = gst_element_factory_make("videorate", NULL);
+	//assert(videorate);
+	//g_object_set(G_OBJECT(videorate), "in", 25, "out", 25,NULL);
 	if (!pipeline || !source1 || !source2 || !sink) {
 		g_printerr("One element could not be created. Exiting.\n");
 		return -1;
 	}
 
+	const int cam_video_w = 800;
+	const int cam_video_h = 600;
 	GstCaps *filtercaps = gst_caps_new_simple("video/x-raw",
 		"format", G_TYPE_STRING, "I420",
 		"width", G_TYPE_INT, 800,
@@ -152,42 +202,18 @@ main(int   argc,
 	assert(filtercaps);
 
 	g_object_set(G_OBJECT(filter1), "caps", filtercaps, NULL);
-	//g_object_set(G_OBJECT(source1), "src", filtercaps, NULL);
-	//gst_structure_get_int(s, "width", &width);
-   //g_signal_connect(G_OBJECT(source1), "pad-added", G_CALLBACK(handler), NULL);
+	gst_caps_unref(filtercaps);
 	
-	//auto * src_pad = gst_element_get_static_pad(source1, "src");
-	
-
-	//assert(src_pad);
-	//auto* templte = gst_pad_get_pad_template(src_pad);
-	//assert(templte);
 	GstCaps *Cameracaps = gst_caps_new_simple("video/x-raw",
 		"format", G_TYPE_STRING, "I420",
-		"width", G_TYPE_INT, 1280,
-		"height", G_TYPE_INT, 720,
+		"width", G_TYPE_INT, cam_video_w,
+		"height", G_TYPE_INT, cam_video_h,
 		"framerate", GST_TYPE_FRACTION, 25, 1,
 		NULL);
 	g_object_set(G_OBJECT(filter), "caps", Cameracaps, NULL);
-	//const auto ret = gst_pad_set_caps(src_pad, Cameracaps);
-	//assert(ret);
+	
 	gst_caps_unref(Cameracaps);
-	//auto* src_caps = gst_pad_get_pad_template_caps(src_pad);
-	//assert(src_caps);
-	////auto* src_caps = gst_pad_get_current_caps(src_pad);
-	////assert(src_caps);
-	// auto* str = gst_caps_get_structure(src_caps, 0);
-	//assert(str);
- //   gst_structure_set(str, "width", G_TYPE_INT, 1280, NULL);
-	//g_object_set(G_OBJECT(src_pad), "caps", filtercaps, NULL);
-	/*auto * pad_src = gst_element_get_static_pad(source1, "src");
-	assert(pad_src);
-	auto* str = gst_caps_get_structure(pad_src, 0);*/
-	gst_caps_unref(filtercaps);
-	//gst_object_unref(src_pad);
-	
-	
-	
+
 	
 	/* Set up the pipeline */
 
@@ -204,29 +230,32 @@ main(int   argc,
 
 	/* we add all elements into the pipeline */
 	gst_bin_add_many(GST_BIN(pipeline),
-		source1, filter, /*filter1, mixer,*/  sink,/* source2, enocoder, container,*/ NULL);
+		source1, filter, filter1, mixer, sink, source2, /*enocoder, container,*/ 
+		/*queue, timeoverlay, videorate,*/
+		fileSrc, pngDec, 
+		imageFreez,NULL);
 
 	/* Manually link the mixer, which has "Request" pads */
 	
 		auto* mixer_sink_pad_template = gst_element_class_get_pad_template(GST_ELEMENT_GET_CLASS(mixer), "sink_%u");
 		assert(mixer_sink_pad_template);
-		//{
-		//auto* mixer_sink_pad = gst_element_request_pad(mixer, mixer_sink_pad_template, NULL, NULL);
-		//assert(mixer_sink_pad);
-		////auto* name = gst_pad_get_name(mixer_sink_pad);
-		//auto * sink_pad = gst_element_get_static_pad(filter1, "src");
-		//assert(sink_pad);
-		//{
-		//	const auto r = gst_pad_link(sink_pad, mixer_sink_pad);
-		//	assert(r == 0);
-		//}
-		//g_object_set(mixer_sink_pad, "xpos", 800, NULL);//source2 for checker
-		//
-		//gst_object_unref(GST_OBJECT(mixer_sink_pad));
-		//gst_object_unref(GST_OBJECT(sink_pad));
-		//}
+		{
+		auto* mixer_sink_pad = gst_element_request_pad(mixer, mixer_sink_pad_template, NULL, NULL);
+		assert(mixer_sink_pad);
+		//auto* name = gst_pad_get_name(mixer_sink_pad);
+		auto * sink_pad = gst_element_get_static_pad(filter1, "src");
+		assert(sink_pad);
+		{
+			const auto r = gst_pad_link(sink_pad, mixer_sink_pad);
+			assert(r == 0);
+		}
+		g_object_set(mixer_sink_pad, "xpos", cam_video_w, NULL);//source2 for checker
+		
+		gst_object_unref(GST_OBJECT(mixer_sink_pad));
+		gst_object_unref(GST_OBJECT(sink_pad));
+		}
 	
-		/*{
+		{
 			auto* mixer_sink_pad1 = gst_element_request_pad(mixer, mixer_sink_pad_template, NULL, NULL);
 			assert(mixer_sink_pad1);
 			auto * sink_pad1 = gst_element_get_static_pad(filter, "src");
@@ -239,15 +268,33 @@ main(int   argc,
 			g_object_set(mixer_sink_pad1, "xpos", 0, NULL);
 			gst_object_unref(GST_OBJECT(mixer_sink_pad1));
 			gst_object_unref(GST_OBJECT(sink_pad1));
-		}*/
-		//gst_element_link_many(mixer,/* enocoder, container, */sink, NULL);
+		}
+
+		{
+			auto* mixer_sink_pad1 = gst_element_request_pad(mixer, mixer_sink_pad_template, NULL, NULL);
+			assert(mixer_sink_pad1);
+			auto * sink_pad1 = gst_element_get_static_pad(imageFreez, "src");
+
+			assert(sink_pad1);
+			{
+				const auto r = gst_pad_link(sink_pad1, mixer_sink_pad1);
+				assert(r == 0);
+			}
+			g_object_set(mixer_sink_pad1, "xpos", 0, NULL);
+			gst_object_unref(GST_OBJECT(mixer_sink_pad1));
+			gst_object_unref(GST_OBJECT(sink_pad1));
+		}
+
+		gst_element_link_many(mixer,/* enocoder, container, */sink, NULL);
 		
-		gst_element_link_many(source1, filter, sink,  NULL);
+		gst_element_link_many(source1,  filter, mixer, NULL);
 
 
 
 	
-		//gst_element_link_many(source2, filter1, /*clrspace,*/ NULL);
+		gst_element_link_many(source2, filter1, /*clrspace,*/ NULL);
+		gst_element_link_many(fileSrc, pngDec, imageFreez, NULL);
+
 	
 	
 	
