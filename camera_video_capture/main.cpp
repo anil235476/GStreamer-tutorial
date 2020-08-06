@@ -1,6 +1,12 @@
 ﻿#include <stdio.h>
 #include <gst/gst.h>
 #include <cassert>
+#include <thread>
+#include <future>
+
+//link explains appsrc push buffer mode.
+//https://gstreamer.freedesktop.org/documentation/tutorials/basic/short-cutting-the-pipeline.html?gi-language=c
+//https://gstreamer.freedesktop.org/documentation/application-development/advanced/pipeline-manipulation.html?gi-language=c#appsrc-example
 
 
 //gst-launch-1.0 -v ksvideosrc ! videomixer ! autovideosink sync=false
@@ -117,13 +123,134 @@ static void handler(GstElement *src, GstPad *new_pad, void* ptr)
 	//gst_object_unref(sink_pad);
 }
 
+bool pushData = false;
+static GstClock *theclock = nullptr;
+GstElement* gPipeLine = nullptr;
+static gboolean
+_read_data(GstElement* app)
+{
+	//auto* app = f.get();
+	const int CHUNK_SIZE = 385 * 288 * 3;;
+	uint8_t white_frame[CHUNK_SIZE] = { 0, };
+	uint8_t black_black[CHUNK_SIZE] = { 0xff, };
+	memset(black_black, 0xff, CHUNK_SIZE);
+	while (pushData) {
+		static gboolean white = FALSE;
+		static GstClockTime timestamp = 0;
+
+
+		//GstBuffer* buffer = gst_buffer_new();
+	//	GstMemory* memory = gst_allocator_alloc(NULL, 100 * 100 * 3, NULL);
+	//	gst_buffer_insert_memory(buffer, -1, memory);
+
+		/* Create a new empty buffer */
+		GstBuffer* buffer = gst_buffer_new_allocate(NULL, CHUNK_SIZE, NULL);
+		assert(buffer);
+		/* this makes the image black/white */
+		//gst_buffer_memset(buffer, 0, white ? 0xff : 0x0, CHUNK_SIZE);
+		auto* ptr = white ? white_frame : black_black;
+		gst_buffer_fill(buffer, 0, ptr, CHUNK_SIZE);
+		white = !white;
+		auto now = gst_clock_get_time(theclock);
+		auto base_time = gst_element_get_base_time(app);
+		GST_BUFFER_PTS(buffer) = now - base_time;
+		//GST_BUFFER_DURATION(buffer) = gst_util_uint64_scale_int(1, GST_SECOND, 24);
+
+		//timestamp += GST_BUFFER_DURATION(buffer);
+		GstFlowReturn ret;
+		g_signal_emit_by_name(app, "push-buffer", buffer, &ret);
+		gst_buffer_unref(buffer);
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000 / 24));
+	}
+
+	return true;
+}
+
+static gboolean
+read_data(std::future<GstElement*> f)
+{
+	auto* app = f.get();
+	return _read_data(app);
+}
+
+
+void sendData(GstElement* appSrc) {
+	assert(appSrc);
+
+}
+
+bool link_source_to_mixer(GstElement *mixer, GstElement *src, int x, int y) {
+	auto* mixer_sink_pad_template =
+		gst_element_class_get_pad_template(GST_ELEMENT_GET_CLASS(mixer), "sink_%u");
+	assert(mixer_sink_pad_template);
+	{
+		auto* mixer_sink_pad = gst_element_request_pad(mixer, mixer_sink_pad_template, NULL, NULL);
+		assert(mixer_sink_pad);
+		//auto* name = gst_pad_get_name(mixer_sink_pad);
+		auto * src_pad = gst_element_get_static_pad(src, "src");
+		assert(src_pad);
+		{
+			const auto r = gst_pad_link(src_pad, mixer_sink_pad);
+			assert(r == 0);
+		}
+		g_object_set(mixer_sink_pad, "xpos", x, "ypos", y, NULL);//source2 for checker
+
+		gst_object_unref(GST_OBJECT(mixer_sink_pad));
+		gst_object_unref(GST_OBJECT(src_pad));
+	}
+	return true;
+}
+
+GstElement * add_element(GstElement *mixer, GstElement *pipeline) {
+	std::this_thread::sleep_for(std::chrono::seconds(5));
+	GstElement * appSrc = gst_element_factory_make("appsrc", NULL);
+	assert(appSrc);
+	/* setup */
+	g_object_set(G_OBJECT(appSrc), "caps",
+		gst_caps_new_simple("video/x-raw",
+			"format", G_TYPE_STRING, "RGB",
+			"width", G_TYPE_INT, 384,
+			"height", G_TYPE_INT, 288,
+			"framerate", GST_TYPE_FRACTION, 0, 1,
+			"do-timestamp", G_TYPE_BOOLEAN, true,
+			NULL), NULL);
+	g_object_set(G_OBJECT(appSrc),
+		"stream-type", 0,
+		"format", GST_FORMAT_TIME, "is_live", true,
+		"min-latency", 0, NULL);
+	gst_element_set_state(appSrc, GST_STATE_PLAYING);
+
+	gst_bin_add(GST_BIN(pipeline), appSrc);
+	link_source_to_mixer(mixer, appSrc, 0, 600);
+	//gst_clock_get_time()
+	//gst_element_set_state(pipeline, GST_STATE_PLAYING);
+	return appSrc;
+}
+
+void change_camera_element_filter(GstElement* filter, int w, int h) {
+	GstCaps *Cameracaps = gst_caps_new_simple("video/x-raw",
+		"format", G_TYPE_STRING, "I420",
+		"width", G_TYPE_INT, w,
+		"height", G_TYPE_INT, h,
+		"framerate", GST_TYPE_FRACTION, 25, 1,
+		NULL);
+	g_object_set(G_OBJECT(filter), "caps", Cameracaps, NULL);
+
+	gst_caps_unref(Cameracaps);
+}
+
 int
 main(int   argc,
 	char *argv[])
 {
 
+	int count = 0;
+	char** ptr = nullptr;
+	gst_init(&count, &ptr);
+
 	/* Initialisation */
-	gst_init(&argc, &argv);
+	//gst_init(&argc, &argv);
 
 	GMainLoop* loop = g_main_loop_new(NULL, FALSE);
 
@@ -133,6 +260,7 @@ main(int   argc,
 	 /* Create gstreamer elements */
 	GstElement *pipeline = gst_pipeline_new("player");
 	assert(pipeline);
+	gPipeLine = pipeline;
 	GstElement *source1 = gst_element_factory_make("ksvideosrc", "source1");
 	assert(source1);
 	GstElement *source2 = gst_element_factory_make("videotestsrc", "source2");
@@ -147,8 +275,8 @@ main(int   argc,
 	
 	GstElement *mixer = gst_element_factory_make("videomixer", "mixer");
 	assert(mixer);
-	//GstElement * clrspace = gst_element_factory_make("videoconvert", "clrspace");
-	//assert(clrspace);
+	GstElement * clrspace = gst_element_factory_make("videoscale", "clrspace");
+	assert(clrspace);
 
 	//GstElement * clrspace1 = gst_element_factory_make("videoconvert", "clrspace1");
 	//assert(clrspace1);
@@ -178,15 +306,30 @@ main(int   argc,
 	GstElement* imageFreez = gst_element_factory_make("imagefreeze", NULL);
 	assert(imageFreez);
 
+	//GstElement * appSrc = gst_element_factory_make("appsrc", NULL);
+	//assert(appSrc);
+	///* setup */
+	//g_object_set(G_OBJECT(appSrc), "caps",
+	//	gst_caps_new_simple("video/x-raw",
+	//		"format", G_TYPE_STRING, "RGB",
+	//		"width", G_TYPE_INT, 384,
+	//		"height", G_TYPE_INT, 288,
+	//		"framerate", GST_TYPE_FRACTION, 0, 1,
+	//		"do-timestamp", G_TYPE_BOOLEAN, true,
+	//		NULL), NULL);
+	//g_object_set(G_OBJECT(appSrc),
+	//	"stream-type", 0,
+	//	"format", GST_FORMAT_TIME, "is_live", true,
+	//	"min-latency", 0, NULL);
 	//GstElement* queue = gst_element_factory_make("queue", NULL);
 	//assert(queue);
 
 	//g_object_set(G_OBJECT(queue), "max-size-time", 0, "max-size-buffers", 0, "max-size-bytes", 0,
 	//	"leaky", 1, NULL);
 
-//	GstElement* videorate = gst_element_factory_make("videorate", NULL);
-	//assert(videorate);
-	//g_object_set(G_OBJECT(videorate), "in", 25, "out", 25,NULL);
+	/*GstElement* videorate = gst_element_factory_make("videorate", NULL);
+	assert(videorate);
+	g_object_set(G_OBJECT(videorate), "in", 2, "out", 25,NULL);*/
 	if (!pipeline || !source1 || !source2 || !sink) {
 		g_printerr("One element could not be created. Exiting.\n");
 		return -1;
@@ -204,17 +347,28 @@ main(int   argc,
 	g_object_set(G_OBJECT(filter1), "caps", filtercaps, NULL);
 	gst_caps_unref(filtercaps);
 	
-	GstCaps *Cameracaps = gst_caps_new_simple("video/x-raw",
+	//GstCaps *Cameracaps = gst_caps_new_simple("video/x-raw",
+	//	"format", G_TYPE_STRING, "I420",
+	//	"width", G_TYPE_INT, 1280,
+	//	"height", G_TYPE_INT, 720,
+	//	"framerate", GST_TYPE_FRACTION, 25, 1,
+	//	NULL);
+	//g_object_set(G_OBJECT(filter), "caps", Cameracaps, NULL);
+	//
+	//gst_caps_unref(Cameracaps);
+	change_camera_element_filter(filter, 1280, 720);
+
+	GstCaps *colorspaceFilter = gst_caps_new_simple("video/x-raw",
 		"format", G_TYPE_STRING, "I420",
-		"width", G_TYPE_INT, cam_video_w,
-		"height", G_TYPE_INT, cam_video_h,
+		"width", G_TYPE_INT, 800,
+		"height", G_TYPE_INT, 600,
 		"framerate", GST_TYPE_FRACTION, 25, 1,
 		NULL);
-	g_object_set(G_OBJECT(filter), "caps", Cameracaps, NULL);
-	
-	gst_caps_unref(Cameracaps);
-
-	
+	assert(colorspaceFilter);
+	GstElement *filter_video_con = gst_element_factory_make("capsfilter", NULL);
+	assert(filter_video_con);
+	g_object_set(G_OBJECT(filter_video_con), "caps", colorspaceFilter, NULL);
+	gst_caps_unref(colorspaceFilter);
 	/* Set up the pipeline */
 
 	/* we set the input filename to the source element */
@@ -233,78 +387,47 @@ main(int   argc,
 		source1, filter, filter1, mixer, sink, source2, /*enocoder, container,*/ 
 		/*queue, timeoverlay, videorate,*/
 		fileSrc, pngDec, 
-		imageFreez,NULL);
+		imageFreez, /*appSrc,*/ clrspace, filter_video_con, NULL);
 
 	/* Manually link the mixer, which has "Request" pads */
+	link_source_to_mixer(mixer, filter1, cam_video_w, 0);
 	
-		auto* mixer_sink_pad_template = gst_element_class_get_pad_template(GST_ELEMENT_GET_CLASS(mixer), "sink_%u");
-		assert(mixer_sink_pad_template);
-		{
-		auto* mixer_sink_pad = gst_element_request_pad(mixer, mixer_sink_pad_template, NULL, NULL);
-		assert(mixer_sink_pad);
-		//auto* name = gst_pad_get_name(mixer_sink_pad);
-		auto * sink_pad = gst_element_get_static_pad(filter1, "src");
-		assert(sink_pad);
-		{
-			const auto r = gst_pad_link(sink_pad, mixer_sink_pad);
-			assert(r == 0);
-		}
-		g_object_set(mixer_sink_pad, "xpos", cam_video_w, NULL);//source2 for checker
+	link_source_to_mixer(mixer, filter_video_con, 0, 0);
+	link_source_to_mixer(mixer, imageFreez, 0, 0);
+	//gst_element_link_many(appSrc, clrspace, /*clrspace,*/ NULL);
+	//link_source_to_mixer(mixer, appSrc, 0,600);
+	gst_element_link_many(source1, filter,clrspace, filter_video_con, NULL);
 		
-		gst_object_unref(GST_OBJECT(mixer_sink_pad));
-		gst_object_unref(GST_OBJECT(sink_pad));
-		}
+	gst_element_link_many(mixer,/* enocoder, container, */sink, NULL);
 	
-		{
-			auto* mixer_sink_pad1 = gst_element_request_pad(mixer, mixer_sink_pad_template, NULL, NULL);
-			assert(mixer_sink_pad1);
-			auto * sink_pad1 = gst_element_get_static_pad(filter, "src");
-			
-			assert(sink_pad1);
-			{
-				const auto r = gst_pad_link(sink_pad1, mixer_sink_pad1);
-				assert(r == 0);
-			}
-			g_object_set(mixer_sink_pad1, "xpos", 0, NULL);
-			gst_object_unref(GST_OBJECT(mixer_sink_pad1));
-			gst_object_unref(GST_OBJECT(sink_pad1));
-		}
-
-		{
-			auto* mixer_sink_pad1 = gst_element_request_pad(mixer, mixer_sink_pad_template, NULL, NULL);
-			assert(mixer_sink_pad1);
-			auto * sink_pad1 = gst_element_get_static_pad(imageFreez, "src");
-
-			assert(sink_pad1);
-			{
-				const auto r = gst_pad_link(sink_pad1, mixer_sink_pad1);
-				assert(r == 0);
-			}
-			g_object_set(mixer_sink_pad1, "xpos", 0, NULL);
-			gst_object_unref(GST_OBJECT(mixer_sink_pad1));
-			gst_object_unref(GST_OBJECT(sink_pad1));
-		}
-
-		gst_element_link_many(mixer,/* enocoder, container, */sink, NULL);
+	gst_element_link_many(source2, filter1, /*clrspace,*/ NULL);
+	gst_element_link_many(fileSrc, pngDec, imageFreez, NULL);
 		
-		gst_element_link_many(source1,  filter, mixer, NULL);
-
-
-
-	
-		gst_element_link_many(source2, filter1, /*clrspace,*/ NULL);
-		gst_element_link_many(fileSrc, pngDec, imageFreez, NULL);
-
-	
-	
-	
 	/* Set the pipeline to "playing" state*/
 	gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
+	auto change_filter = async(std::launch::async,
+		[source1, filter]() {
+		std::this_thread::sleep_for(std::chrono::seconds(15));
+		gst_element_set_state(source1, GST_STATE_NULL);
+		change_camera_element_filter(filter, 800, 600);
+		gst_element_set_state(source1, GST_STATE_PLAYING);
+	});
+	
+
+
+	/*get the clock now.Since we never set the pipeline to PAUSED again, the
+		* clock will not change, even when we add new clock providers later.  */
+		theclock = gst_element_get_clock(pipeline);
+		assert(theclock);
+	pushData = true;
+//	auto* src = add_element(mixer, pipeline);
+	auto first = std::async(std::launch::async, add_element, mixer, pipeline);
+	auto fut =   std::async(std::launch::async, read_data, std::move(first));
 	/* Iterate */
 	g_print("Running...\n");
 	g_main_loop_run(loop);
-
+	pushData = false;
 	/* Out of the main loop, clean up nicely */
 	g_print("Returned, stopping playback\n");
 	gst_element_set_state(pipeline, GST_STATE_NULL);
